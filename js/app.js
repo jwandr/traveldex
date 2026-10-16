@@ -1101,7 +1101,7 @@ function renderMapView(container, list) {
   });
 
   L.tileLayer(
-    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=cb1_4mve_1_9f1f0f7d045dfba544a094b3',
     {
       attribution: '© OpenStreetMap, © CARTO',
       maxZoom: 19,
