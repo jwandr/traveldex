@@ -19,6 +19,7 @@ const state = {
   browseIndex: 0,
   filter: 'all',
   activeTags: new Set(),
+  tagsOpen: false,
   query: '',
   dismissedInsights: JSON.parse(localStorage.getItem('rolodex_dismissed_insights') || '[]'),
   whoami: localStorage.getItem('rolodex_whoami') || '',
@@ -293,63 +294,106 @@ function computeInsights() {
 
 function renderDestination() {
   const d = state.destination;
-  const filtered = getFilteredCards();
   const allTags = [...new Set(state.cards.flatMap(c => c.tags || []))].sort();
   const insights = computeInsights();
-
+  const tagCount = state.activeTags.size;
+ 
+  const views = [
+    { id: 'map',    icon: '📍', label: 'Map' },
+    { id: 'grid',   icon: '▦',  label: 'Grid' },
+    { id: 'browse', icon: '🗂️', label: 'Browse' },
+  ];
+ 
   const main = document.getElementById('main');
   main.innerHTML = `
-    <button class="back-link" id="back-btn">← All destinations</button>
-    <div class="dest-header">
-      <div class="title-row">
+    <div class="dest-bar">
+      <div class="dest-bar-left">
+        <button class="icon-btn sm" id="back-btn" title="All destinations" aria-label="Back to all destinations">←</button>
         <span class="flag">${d.flag || '✦'}</span>
         <h1>${escapeHtml(d.name)}</h1>
-        <span class="count">${state.cards.length} thing${state.cards.length === 1 ? '' : 's'} saved</span>
-        <button class="icon-btn" id="edit-destination" title="Edit destination">✎</button>
+        <span class="count">${state.cards.length} saved</span>
+        <button class="icon-btn sm" id="edit-destination" title="Edit destination" aria-label="Edit destination">✎</button>
       </div>
-      
-      <!-- ${d.short_description ? `<p class="desc">${escapeHtml(d.short_description)}</p>` : ''} -->
-
-      <div class="toolbar">
-        <button class="tbtn ${state.destView === 'map' ? 'active' : ''}" data-destview="map"><span class="ic">📍</span> Map</button>
-        <button class="tbtn ${state.destView === 'grid' ? 'active' : ''}" data-destview="grid"><span class="ic">▦</span> Grid</button>  
-        <button class="tbtn ${state.destView === 'browse' ? 'active' : ''}" data-destview="browse"><span class="ic">🗂️</span> Browse</button>
-        <button class="tbtn" id="surprise-btn"><span class="ic">🎲</span> Surprise me</button>
+ 
+      <div class="dest-bar-right">
+        <div class="seg" role="tablist" aria-label="View">
+          ${views.map(v => `
+            <button class="seg-btn ${state.destView === v.id ? 'active' : ''}" data-destview="${v.id}" title="${v.label}">
+              <span class="ic">${v.icon}</span><span class="lbl">${v.label}</span>
+            </button>`).join('')}
+        </div>
+        <button class="tbtn" id="surprise-btn" title="Surprise me"><span class="ic">🎲</span><span class="lbl">Surprise me</span></button>
       </div>
-
-      ${insights.length ? `
-        <div class="insight-banner" data-insight="${insights[0].id}">
-          <span>${insights[0].text}</span>
-          <button class="dismiss" data-dismiss="${insights[0].id}">✕</button>
-        </div>` : ''}
     </div>
-
-    <div class="filter-row">
-      ${QUICK_FILTERS.map(f => `<button class="chip ${state.filter === f.id ? 'active' : ''}" data-filter="${f.id}">${f.label}</button>`).join('')}
+ 
+    <div class="filter-row compact">
+      <div class="chip-scroll">
+        ${QUICK_FILTERS.map(f => `<button class="chip ${state.filter === f.id ? 'active' : ''}" data-filter="${f.id}">${f.label}</button>`).join('')}
+      </div>
+ 
+      ${allTags.length ? `
+        <button class="chip tags-toggle ${state.tagsOpen ? 'open' : ''} ${tagCount ? 'has-active' : ''}" id="tags-toggle" aria-expanded="${state.tagsOpen ? 'true' : 'false'}">
+          # Tags${tagCount ? ` <span class="badge">${tagCount}</span>` : ''} <span class="caret">${state.tagsOpen ? '▴' : '▾'}</span>
+        </button>` : ''}
+ 
       <div class="search-box">
-        <span style="font-size:13px; color:var(--ink-faint);">⌕</span>
-        <input type="text" id="search-input" placeholder="Search this destination…" value="${escapeHtml(state.query)}" />
+        <span class="search-ic">⌕</span>
+        <input type="text" id="search-input" placeholder="Search…" value="${escapeHtml(state.query)}" />
       </div>
     </div>
-    ${allTags.length ? `
+ 
+    ${allTags.length && state.tagsOpen ? `
       <div class="tag-filter-row">
         ${allTags.map(t => `<button class="chip tag ${state.activeTags.has(t) ? 'active' : ''}" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('')}
+        ${tagCount ? `<button class="chip clear-tags" id="clear-tags">Clear</button>` : ''}
       </div>` : ''}
-
+ 
+    ${insights.length ? `
+      <div class="insight-banner slim" data-insight="${insights[0].id}">
+        <span>${insights[0].text}</span>
+        <button class="dismiss" data-dismiss="${insights[0].id}" aria-label="Dismiss">✕</button>
+      </div>` : ''}
+ 
     <div id="dest-content"></div>
   `;
-
-  document.getElementById('edit-destination')
-        .addEventListener('click', openEditDestinationSheet);
-
+ 
+  document.getElementById('edit-destination').addEventListener('click', openEditDestinationSheet);
   document.getElementById('back-btn').addEventListener('click', goToCatalogue);
   document.getElementById('surprise-btn').addEventListener('click', () => surpriseMe());
+ 
+  // View switcher. Keeps the selected card when moving between grid and map,
+  // clears it when going to Browse. (This logic previously sat in
+  // renderCatalogue(), where no [data-destview] elements exist — it can be
+  // deleted from there.)
   main.querySelectorAll('[data-destview]').forEach(el => {
-    el.addEventListener('click', () => { state.destView = el.dataset.destview; renderDestination(); });
+    el.addEventListener('click', () => {
+      state.destView = el.dataset.destview;
+ 
+      if (state.destView === 'grid' && state.selectedMapCard) {
+        state.selectedGridCard = state.selectedMapCard;
+      }
+      if (state.destView === 'map' && state.selectedGridCard) {
+        state.selectedMapCard = state.selectedGridCard;
+      }
+      if (state.destView === 'browse') {
+        state.selectedGridCard = null;
+        state.selectedMapCard = null;
+      }
+ 
+      renderDestination();
+    });
   });
+ 
   main.querySelectorAll('[data-filter]').forEach(el => {
     el.addEventListener('click', () => { state.filter = el.dataset.filter; renderDestination(); });
   });
+ 
+  const tagsToggle = document.getElementById('tags-toggle');
+  if (tagsToggle) tagsToggle.addEventListener('click', () => {
+    state.tagsOpen = !state.tagsOpen;
+    renderDestination();
+  });
+ 
   main.querySelectorAll('[data-tag]').forEach(el => {
     el.addEventListener('click', () => {
       const t = el.dataset.tag;
@@ -357,6 +401,13 @@ function renderDestination() {
       renderDestination();
     });
   });
+ 
+  const clearTags = document.getElementById('clear-tags');
+  if (clearTags) clearTags.addEventListener('click', () => {
+    state.activeTags = new Set();
+    renderDestination();
+  });
+ 
   const dismissBtn = main.querySelector('[data-dismiss]');
   if (dismissBtn) dismissBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -364,12 +415,13 @@ function renderDestination() {
     localStorage.setItem('rolodex_dismissed_insights', JSON.stringify(state.dismissedInsights));
     renderDestination();
   });
+ 
   const searchInput = document.getElementById('search-input');
   searchInput.addEventListener('input', debounce(() => {
     state.query = searchInput.value;
     renderDestContent();
   }, 200));
-
+ 
   renderDestContent();
 }
 
