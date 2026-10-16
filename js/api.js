@@ -69,6 +69,20 @@ export async function fetchCards(destinationId) {
   return data || [];
 }
 
+// Lightweight list of every located card across the given destinations —
+// powers the map on the destinations page.
+export async function fetchCardPins(destinationIds) {
+  if (!destinationIds?.length) return [];
+  const { data, error } = await getClient()
+    .from('rolodex_cards')
+    .select('id, destination_id, title, type, status, lat, lng')
+    .in('destination_id', destinationIds)
+    .not('lat', 'is', null)
+    .not('lng', 'is', null);
+  if (error) throw error;
+  return data || [];
+}
+
 export async function createCard(payload) {
   const { data, error } = await getClient().from('rolodex_cards').insert(payload).select().single();
   if (error) throw error;
