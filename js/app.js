@@ -1,7 +1,7 @@
 import * as api from './api.js';
 import { fetchLinkPreview } from './linkPreview.js';
 import {
-  CARD_TYPES, CARD_OPPORTUNITIES, SUGGESTED_TAGS, QUICK_FILTERS,
+  CARD_TYPES, CARD_STATUSES, CARD_OPPORTUNITIES, SUGGESTED_TAGS, QUICK_FILTERS,
   escapeHtml, timeAgo, formatDateRange,
 } from './config.js';
 
