@@ -2868,7 +2868,7 @@ main {
 
 .triage-actions {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-top: 18px;
 }
@@ -2903,11 +2903,7 @@ main {
   font-size: 9px;
 }
 
-.triage-btn.s-not_for_us:hover { background: var(--danger-soft); border-color: #F1CACA; }
-.triage-btn.s-maybe:hover      { background: var(--yellow-soft); border-color: #EBD8A9; }
-.triage-btn.s-curious:hover    { background: var(--blue-soft);   border-color: #C9DAEB; }
-.triage-btn.s-favourite:hover  { background: var(--accent-soft); border-color: #FFD0C7; }
-.triage-btn.s-must_do:hover    { background: var(--yellow-soft); border-color: var(--yellow); }
+.triage-btn:hover { background: var(--accent-soft); border-color: #FFD0C7; }
 
 .triage-skip {
   display: block;

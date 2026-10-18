@@ -29,19 +29,6 @@ export const CARD_TYPES = {
 };
 
 // ============================================================
-// Card statuses — how keen we are. Set by Triage; also drives map pins.
-// ============================================================
-export const CARD_STATUSES = {
-  new:        { label: 'New',        icon: '·' },
-  curious:    { label: 'Curious',    icon: '🤔' },
-  maybe:      { label: 'Maybe',      icon: '🤷' },
-  favourite:  { label: 'Very us',    icon: '❤️' },
-  must_do:    { label: 'Must do',    icon: '⭐' },
-  done:       { label: 'Done',       icon: '✅' },
-  not_for_us: { label: 'Not for us', icon: '✕' },
-};
-
-// ============================================================
 // Card opportunities — deliberately loose, meant to evolve over time
 // ============================================================
 export const CARD_OPPORTUNITIES = {

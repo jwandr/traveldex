@@ -75,7 +75,7 @@ export async function fetchCardPins(destinationIds) {
   if (!destinationIds?.length) return [];
   const { data, error } = await getClient()
     .from('rolodex_cards')
-    .select('id, destination_id, title, type, status, lat, lng')
+    .select('id, destination_id, title, type, opportunity, lat, lng')
     .in('destination_id', destinationIds)
     .not('lat', 'is', null)
     .not('lng', 'is', null);

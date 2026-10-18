@@ -1,7 +1,7 @@
 import * as api from './api.js';
 import { fetchLinkPreview } from './linkPreview.js';
 import {
-  CARD_TYPES, CARD_STATUSES, CARD_OPPORTUNITIES, SUGGESTED_TAGS, QUICK_FILTERS,
+  CARD_TYPES, CARD_OPPORTUNITIES, SUGGESTED_TAGS, QUICK_FILTERS,
   escapeHtml, timeAgo, formatDateRange,
 } from './config.js';
 
@@ -16,7 +16,7 @@ const state = {
   cards: [],            // all cards for the open destination
   view: 'catalogue',    // 'catalogue' | 'destination'
   catView: 'tiles',     // 'tiles' | 'map'   (catalogue)
-  catMapLayer: 'favs',  // 'dest' | 'favs' | 'all'
+  catMapLayer: 'all',  // 'dest' | 'all' | an opportunity key
   destView: 'map',      // 'browse' | 'grid' | 'map'
   browseIndex: 0,
   filter: 'all',
@@ -201,8 +201,8 @@ function renderCatalogue() {
     const unmapped = state.destinations.filter(d => !destinationLatLng(d)).length;
     const layers = [
       { id: 'dest', label: 'Destinations' },
-      { id: 'favs', label: 'Favourites & must-dos' },
       { id: 'all',  label: 'All ideas' },
+      ...Object.entries(CARD_OPPORTUNITIES).map(([k, v]) => ({ id: k, label: `${v.icon} ${v.label}` })),
     ];
     main.innerHTML = `
       ${header}
@@ -271,7 +271,11 @@ function renderCatalogue() {
 }
 
 // ---------- Catalogue map ----------
-const PIN_COLOURS = { must_do: '#FF5B45', favourite: '#E0527A', other: '#7D8A96' };
+const PIN_COLOURS = {
+  big_ticket: '#FF5B45', free_low_cost: '#4F8068', local_life: '#C18B32',
+  food_cooking: '#E0527A', slow_moments: '#7767A5', curiosities: '#4C78A8',
+  other: '#7D8A96',
+};
 
 function renderCatalogueMap() {
   const el = document.getElementById('cat-map');
@@ -291,22 +295,21 @@ function renderCatalogueMap() {
   // Card dots first, so destination labels sit on top
   if (state.catMapLayer !== 'dest') {
     const pins = state.cardPins.filter(p => {
-      if (p.status === 'not_for_us') return false;
-      if (state.catMapLayer === 'favs') return p.status === 'favourite' || p.status === 'must_do';
+      if (CARD_OPPORTUNITIES[state.catMapLayer]) return p.opportunity === state.catMapLayer;
       return true;
     });
 
     pins.forEach(p => {
-      const colour = PIN_COLOURS[p.status] || PIN_COLOURS.other;
+      const colour = PIN_COLOURS[p.opportunity] || PIN_COLOURS.other;
       const dest = destById[p.destination_id];
       const marker = L.circleMarker([p.lat, p.lng], {
         radius: 6, weight: 2, color: '#fff', fillColor: colour, fillOpacity: 0.95,
       }).addTo(map);
 
-      const statusInfo = CARD_STATUSES[p.status];
+      const oppInfo = CARD_OPPORTUNITIES[p.opportunity];
       marker.bindPopup(`
         <strong>${escapeHtml(p.title)}</strong><br>
-        <small>${dest ? escapeHtml((dest.flag || '') + ' ' + dest.name) : ''}${statusInfo && p.status !== 'new' ? ' · ' + statusInfo.icon + ' ' + escapeHtml(statusInfo.label) : ''}</small><br>
+        <small>${dest ? escapeHtml((dest.flag || '') + ' ' + dest.name) : ''}${oppInfo ? ' · ' + oppInfo.icon + ' ' + escapeHtml(oppInfo.label) : ''}</small><br>
         <button class="tbtn map-pop-btn" data-open-dest="${p.destination_id}" data-open-card="${p.id}">Open ↗</button>
       `);
       marker.on('popupopen', e => {
@@ -447,7 +450,7 @@ function renderDestination() {
   const allTags = [...new Set(state.cards.flatMap(c => c.tags || []))].sort();
   const insights = computeInsights();
   const tagCount = state.activeTags.size;
-  const newCount = state.cards.filter(c => c.status === 'new').length;
+  const newCount = state.cards.filter(c => !c.opportunity).length;
 
   const views = [
     { id: 'map',    icon: '📍', label: 'Map' },
@@ -468,7 +471,7 @@ function renderDestination() {
 
       <div class="dest-bar-right">
         ${newCount ? `
-          <button class="tbtn accent" id="triage-btn" title="Sort new ideas">
+          <button class="tbtn accent" id="triage-btn" title="Give unsorted ideas an opportunity">
             <span class="ic">✨</span><span class="lbl">Sort new</span><span class="count-badge">${newCount}</span>
           </button>` : ''}
         <div class="seg" role="tablist" aria-label="View">
@@ -1161,16 +1164,16 @@ function surpriseMe() {
 function touchViewed(id) { api.touchLastViewed(id); }
 
 // ============================================================
-// Triage — sort "New" cards one at a time
+// Triage — give unsorted cards an Opportunity, one at a time
 // ============================================================
-// Left → right: from "no" to "yes". Keys 1–5 match the button order.
-const TRIAGE_OPTIONS = ['not_for_us', 'maybe', 'curious', 'favourite', 'must_do'];
+// Keys 1–6 match the order of CARD_OPPORTUNITIES.
+const TRIAGE_OPTIONS = Object.keys(CARD_OPPORTUNITIES);
 
 let triage = null; // { queue, index, history, counts, onKey }
 
 function openTriage() {
-  const queue = state.cards.filter(c => c.status === 'new').map(c => c.id);
-  if (!queue.length) { showToast('Nothing new to sort'); return; }
+  const queue = state.cards.filter(c => !c.opportunity).map(c => c.id);
+  if (!queue.length) { showToast('Every card already has an opportunity'); return; }
 
   triage = { queue, index: 0, history: [], counts: {}, onKey: null };
 
@@ -1198,7 +1201,7 @@ function handleTriageKey(e) {
   const k = e.key;
   if (k === 'Escape') { closeTriage(); return; }
   if (triage.index >= triage.queue.length) return;
-  if (k >= '1' && k <= '5') { triageDecide(TRIAGE_OPTIONS[Number(k) - 1]); return; }
+  if (k >= '1' && k <= String(TRIAGE_OPTIONS.length)) { triageDecide(TRIAGE_OPTIONS[Number(k) - 1]); return; }
   if (k === 'ArrowRight' || k === 's' || k === 'S') { triageSkip(); return; }
   if (k === 'ArrowLeft' || k === 'z' || k === 'Z' || k === 'Backspace') { triageUndo(); }
 }
@@ -1253,29 +1256,29 @@ function renderTriage() {
 
       <div class="triage-actions">
         ${TRIAGE_OPTIONS.map((s, i) => `
-          <button class="triage-btn s-${s}" data-status="${s}">
-            <span class="ti">${CARD_STATUSES[s].icon}</span>
-            <span class="tl">${CARD_STATUSES[s].label}</span>
+          <button class="triage-btn" data-opp="${s}">
+            <span class="ti">${CARD_OPPORTUNITIES[s].icon}</span>
+            <span class="tl">${CARD_OPPORTUNITIES[s].label}</span>
             <kbd>${i + 1}</kbd>
           </button>`).join('')}
       </div>
 
       <button class="triage-skip" id="tr-skip">Skip for now →</button>
-      <p class="triage-hint">Keys: 1–5 to choose · → skip · Z undo · Esc close</p>
+      <p class="triage-hint">Keys: 1–6 to choose · → skip · Z undo · Esc close</p>
     </div>
   `;
 
   document.getElementById('tr-close').addEventListener('click', closeTriage);
   document.getElementById('tr-undo').addEventListener('click', triageUndo);
   document.getElementById('tr-skip').addEventListener('click', triageSkip);
-  el.querySelectorAll('[data-status]').forEach(btn => {
-    btn.addEventListener('click', () => triageDecide(btn.dataset.status));
+  el.querySelectorAll('[data-opp]').forEach(btn => {
+    btn.addEventListener('click', () => triageDecide(btn.dataset.opp));
   });
 }
 
 function renderTriageDone(el) {
   const decided = Object.entries(triage.counts).filter(([, n]) => n > 0);
-  const remaining = state.cards.filter(c => c.status === 'new').length;
+  const remaining = state.cards.filter(c => !c.opportunity).length;
 
   el.innerHTML = `
     <div class="triage-top">
@@ -1288,7 +1291,7 @@ function renderTriageDone(el) {
         <div class="glyph">${remaining ? '👌' : '🎉'}</div>
         <h3>${remaining ? 'That\'s the pass' : 'All sorted'}</h3>
         <p>${decided.length
-          ? decided.map(([s, n]) => `${CARD_STATUSES[s].icon} ${n} ${escapeHtml(CARD_STATUSES[s].label)}`).join(' &nbsp;·&nbsp; ')
+          ? decided.map(([s, n]) => `${CARD_OPPORTUNITIES[s].icon} ${n} ${escapeHtml(CARD_OPPORTUNITIES[s].label)}`).join(' &nbsp;·&nbsp; ')
           : 'Nothing sorted this time.'}</p>
         <div class="triage-done-actions">
           ${remaining ? `<button class="btn-secondary" id="tr-again">Review ${remaining} skipped</button>` : ''}
@@ -1303,30 +1306,30 @@ function renderTriageDone(el) {
   document.getElementById('tr-undo').addEventListener('click', triageUndo);
   const again = document.getElementById('tr-again');
   if (again) again.addEventListener('click', () => {
-    triage.queue = state.cards.filter(c => c.status === 'new').map(c => c.id);
+    triage.queue = state.cards.filter(c => !c.opportunity).map(c => c.id);
     triage.index = 0;
     triage.history = [];
     renderTriage();
   });
 }
 
-function triageDecide(status) {
+function triageDecide(opportunity) {
   if (!triage || triage.index >= triage.queue.length) return;
   const id = triage.queue[triage.index];
   const card = state.cards.find(c => c.id === id);
   if (!card) { triage.history.push({ id: null }); triage.index++; renderTriage(); return; }
 
-  const prev = card.status;
-  card.status = status;
-  triage.history.push({ id, prev, status });
-  triage.counts[status] = (triage.counts[status] || 0) + 1;
+  const prev = card.opportunity ?? null;
+  card.opportunity = opportunity;
+  triage.history.push({ id, prev, opportunity });
+  triage.counts[opportunity] = (triage.counts[opportunity] || 0) + 1;
   triage.index++;
   renderTriage();
 
-  api.updateCard(id, { status }).catch(() => {
-    card.status = prev;
-    triage.counts[status] = Math.max(0, (triage.counts[status] || 1) - 1);
-    showToast(`Couldn't save "${truncate(card.title, 30)}" — it's still New`);
+  api.updateCard(id, { opportunity }).catch(() => {
+    card.opportunity = prev;
+    triage.counts[opportunity] = Math.max(0, (triage.counts[opportunity] || 1) - 1);
+    showToast(`Couldn't save "${truncate(card.title, 30)}" — it's still unsorted`);
   });
 }
 
@@ -1344,9 +1347,9 @@ function triageUndo() {
 
   if (entry.id && !entry.skipped) {
     const card = state.cards.find(c => c.id === entry.id);
-    if (card) card.status = entry.prev;
-    triage.counts[entry.status] = Math.max(0, (triage.counts[entry.status] || 1) - 1);
-    api.updateCard(entry.id, { status: entry.prev }).catch(() => showToast('Could not undo — try again'));
+    if (card) card.opportunity = entry.prev;
+    triage.counts[entry.opportunity] = Math.max(0, (triage.counts[entry.opportunity] || 1) - 1);
+    api.updateCard(entry.id, { opportunity: entry.prev }).catch(() => showToast('Could not undo — try again'));
   }
   renderTriage();
 }
