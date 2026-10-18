@@ -2951,3 +2951,9 @@ main {
   .triage-btn .tl { font-size: 10px; }
   .triage-hint { display: none; }
 }
+.opp-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -6px 0 18px;
+}

@@ -29,16 +29,15 @@ export const CARD_TYPES = {
 };
 
 // ============================================================
-// Card statuses — deliberately loose, meant to evolve over time
+// Card opportunities — deliberately loose, meant to evolve over time
 // ============================================================
-export const CARD_STATUSES = {
-  new:        { label: 'New',        icon: '·' },
-  curious:    { label: 'Curious',    icon: '🤔' },
-  maybe:      { label: 'Maybe',      icon: '🤷' },
-  favourite:  { label: 'Very us',    icon: '❤️' },
-  must_do:    { label: 'Must do',    icon: '⭐' },
-  done:       { label: 'Done',       icon: '✅' },
-  not_for_us: { label: 'Not for us', icon: '✕' },
+export const CARD_OPPORTUNITIES = {
+  big_ticket:    { label: 'Big Ticket',      icon: '💎' },
+  free_low_cost: { label: 'Free & Low Cost', icon: '🪙' },
+  local_life:    { label: 'Local Life',      icon: '🧺' },
+  food_cooking:  { label: 'Food & Cooking',  icon: '🍳' },
+  slow_moments:  { label: 'Slow Moments',    icon: '☕' },
+  curiosities:   { label: 'Curiosities',     icon: '🔍' },
 };
 
 // Quick-pick tags shown during capture. The user can still type any
@@ -55,8 +54,6 @@ export const QUICK_FILTERS = [
   { id: 'food',      label: 'Food',     type: 'food' },
   { id: 'link',      label: 'Links',    typeIn: ['article', 'video'] },
   { id: 'photo',     label: 'Photos',   type: 'photo' },
-  { id: 'favourite', label: 'Favourites', statusIn: ['favourite', 'must_do'] },
-  { id: 'must_do',   label: 'Must do',  statusIn: ['must_do'] },
 ];
 
 export function escapeHtml(str) {

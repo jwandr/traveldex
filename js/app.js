@@ -1,7 +1,7 @@
 import * as api from './api.js';
 import { fetchLinkPreview } from './linkPreview.js';
 import {
-  CARD_TYPES, CARD_STATUSES, SUGGESTED_TAGS, QUICK_FILTERS,
+  CARD_TYPES, CARD_OPPORTUNITIES, SUGGESTED_TAGS, QUICK_FILTERS,
   escapeHtml, timeAgo, formatDateRange,
 } from './config.js';
 
@@ -20,6 +20,7 @@ const state = {
   destView: 'map',      // 'browse' | 'grid' | 'map'
   browseIndex: 0,
   filter: 'all',
+  opportunity: 'all',
   activeTags: new Set(),
   tagsOpen: false,
   query: '',
@@ -366,6 +367,7 @@ async function openDestination(id, focusCardId = null) {
   state.destView = 'map';
   state.browseIndex = 0;
   state.filter = 'all';
+  state.opportunity = 'all';
   state.activeTags = new Set();
   state.tagsOpen = false;
   state.query = '';
@@ -398,7 +400,9 @@ function getFilteredCards() {
   if (f && f.id !== 'all') {
     if (f.type) list = list.filter(c => c.type === f.type);
     if (f.typeIn) list = list.filter(c => f.typeIn.includes(c.type));
-    if (f.statusIn) list = list.filter(c => f.statusIn.includes(c.status));
+  }
+  if (state.opportunity !== 'all') {
+    list = list.filter(c => c.opportunity === state.opportunity);
   }
   if (state.activeTags.size > 0) {
     list = list.filter(c => c.tags?.some(t => state.activeTags.has(t)));
@@ -493,6 +497,13 @@ function renderDestination() {
       </div>
     </div>
 
+    <div class="opp-filter-row">
+      <button class="chip ${state.opportunity === 'all' ? 'active' : ''}" data-opp="all">Any opportunity</button>
+      ${Object.entries(CARD_OPPORTUNITIES).map(([k, v]) =>
+        `<button class="chip ${state.opportunity === k ? 'active' : ''}" data-opp="${k}">${v.icon} ${v.label}</button>`
+      ).join('')}
+    </div>
+
     ${allTags.length && state.tagsOpen ? `
       <div class="tag-filter-row">
         ${allTags.map(t => `<button class="chip tag ${state.activeTags.has(t) ? 'active' : ''}" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('')}
@@ -517,6 +528,10 @@ function renderDestination() {
 
   // View switcher. Keeps the selected card when moving between grid and map,
   // clears it when going to Browse.
+  main.querySelectorAll('[data-opp]').forEach(el => {
+    el.addEventListener('click', () => { state.opportunity = el.dataset.opp; renderDestination(); });
+  });
+  
   main.querySelectorAll('[data-destview]').forEach(el => {
     el.addEventListener('click', () => {
       state.destView = el.dataset.destview;
@@ -666,12 +681,12 @@ function emptyForFilter() {
 
 function cardTileHtml(c) {
   const typeInfo = CARD_TYPES[c.type] || CARD_TYPES.other;
-  const statusInfo = CARD_STATUSES[c.status] || CARD_STATUSES.new;
+  const opp = CARD_OPPORTUNITIES[c.opportunity];
   const bg = c.image_url ? `style="background-image:url('${escapeHtml(c.image_url)}')"` : '';
   return `
     <div class="rcard" data-id="${c.id}">
       <div class="tab">${typeInfo.icon} ${typeInfo.label}</div>
-      ${c.status !== 'new' ? `<div class="status-mark" title="${statusInfo.label}">${statusInfo.icon}</div>` : ''}
+      ${opp ? `<div class="status-mark" title="${opp.label}">${opp.icon}</div>` : ''}
       <div class="thumb" ${bg}>${c.image_url ? '' : typeInfo.icon}</div>
       <div class="rc-body">
         <h4>${escapeHtml(c.title)}</h4>
@@ -719,8 +734,10 @@ function renderBrowseView(container, list) {
 function browseCardHtml(c) {
   const typeInfo = CARD_TYPES[c.type] || CARD_TYPES.other;
   const bg = c.image_url ? `style="background-image:url('${escapeHtml(c.image_url)}')"` : '';
-  const statusOptions = Object.entries(CARD_STATUSES).map(([k, v]) =>
-    `<option value="${k}" ${c.status === k ? 'selected' : ''}>${v.icon} ${v.label}</option>`).join('');
+  const opportunityOptions =
+    `<option value="">— No opportunity —</option>` +
+    Object.entries(CARD_OPPORTUNITIES).map(([k, v]) =>
+      `<option value="${k}" ${c.opportunity === k ? 'selected' : ''}>${v.icon} ${v.label}</option>`).join('');
 
   return `
     <div class="browse-card entering">
@@ -731,7 +748,7 @@ function browseCardHtml(c) {
         ${c.note ? `<p class="bc-note">"${escapeHtml(c.note)}"</p>` : ''}
         ${c.description ? `<p class="bc-desc">${escapeHtml(c.description)}</p>` : ''}
         <div class="bc-tags">${(c.tags || []).map(t => `<span class="rc-tags"><span>${escapeHtml(t)}</span></span>`).join('')}</div>
-        <select class="status-select" id="bc-status">${statusOptions}</select>
+        <select class="status-select" id="bc-opportunity">${opportunityOptions}</select>
         <div class="bc-actions">
           <button class="tbtn" id="bc-edit">✎ Edit</button>
 
@@ -763,22 +780,16 @@ function browseCardHtml(c) {
 }
 
 function wireBrowseCardActions(c) {
-  const statusSel = document.getElementById('bc-status');
-  if (statusSel) statusSel.addEventListener('change', async () => {
-    const newStatus = statusSel.value;
-    const prevStatus = c.status;
-    c.status = newStatus;
+  const oppSel = document.getElementById('bc-opportunity');
+  if (oppSel) oppSel.addEventListener('change', async () => {
+    const value = oppSel.value || null;
+    c.opportunity = value;
     const local = state.cards.find(x => x.id === c.id);
-    if (local) local.status = newStatus;
+    if (local) local.opportunity = value;
     try {
-      await api.updateCard(c.id, { status: newStatus });
-      showToast(`Marked as ${CARD_STATUSES[newStatus].label.toLowerCase()}`);
-    } catch (err) {
-      c.status = prevStatus;
-      if (local) local.status = prevStatus;
-      statusSel.value = prevStatus;
-      showToast('Could not save — try again');
-    }
+      await api.updateCard(c.id, { opportunity: value });
+      showToast(value ? `Tagged ${CARD_OPPORTUNITIES[value].label}` : 'Opportunity cleared');
+    } catch (err) { showToast('Could not save — will retry when back online'); }
   });
   const delBtn = document.getElementById('bc-delete');
   if (delBtn) delBtn.addEventListener('click', async () => {
@@ -957,13 +968,11 @@ function openEditCardSheet(card) {
       </div>
 
       <div class="field">
-        <label>Status</label>
-
-        <select id="ec-status">
-          ${Object.entries(CARD_STATUSES).map(([key, info]) => `
-            <option value="${key}" ${card.status === key ? 'selected' : ''}>
-              ${info.icon} ${info.label}
-            </option>
+        <label>Opportunity</label>
+        <select id="ec-opportunity">
+          <option value="">— None —</option>
+          ${Object.entries(CARD_OPPORTUNITIES).map(([key, info]) => `
+            <option value="${key}" ${card.opportunity === key ? 'selected' : ''}>${info.icon} ${info.label}</option>
           `).join('')}
         </select>
       </div>
@@ -1089,7 +1098,7 @@ function openEditCardSheet(card) {
       note: document.getElementById('ec-note').value.trim() || null,
       description: document.getElementById('ec-description').value.trim() || null,
       type: selectedType,
-      status: document.getElementById('ec-status').value,
+      opportunity: document.getElementById('ec-opportunity').value || null,
       url: document.getElementById('ec-url').value.trim() || null,
       source: document.getElementById('ec-source').value.trim() || null,
       image_url: document.getElementById('ec-image').value.trim() || null,
@@ -1451,11 +1460,11 @@ function renderMapView(container, list) {
 // ============================================================
 // Capture sheet — the core "+ Add" flow
 // ============================================================
-let captureDraft = { type: 'other', tags: new Set(), preview: null };
+let captureDraft = { type: 'other', tags: new Set(), preview: null, opportunity: '' };
 
 function openCaptureSheet() {
   if (!state.destination) return;
-  captureDraft = { type: 'other', tags: new Set(), preview: null };
+  captureDraft = { type: 'other', tags: new Set(), preview: null, opportunity: '' };
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
   overlay.id = 'capture-overlay';
@@ -1603,7 +1612,7 @@ async function saveCaptureCard() {
     source: captureDraft.preview?.source || null,
     image_url: captureDraft.preview?.image || null,
     tags: [...captureDraft.tags],
-    status: 'new',
+    opportunity: document.getElementById('opportunity-input').value || null,
     added_by: state.whoami,
   };
 
@@ -1615,6 +1624,7 @@ async function saveCaptureCard() {
     state.destView = 'browse';
     state.browseIndex = 0;
     state.filter = 'all';
+    state.opportunity = 'all';
     state.activeTags = new Set();
     renderDestination();
   } catch (err) {
