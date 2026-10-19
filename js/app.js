@@ -1502,6 +1502,14 @@ function openCaptureSheet() {
       </div>
 
       <div class="field">
+        <label>Opportunity <span style="text-transform:none; letter-spacing:0;">(optional)</span></label>
+        <select id="opportunity-input">
+          <option value="">— None —</option>
+          ${Object.entries(CARD_OPPORTUNITIES).map(([k, v]) => `<option value="${k}">${v.icon} ${v.label}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="field">
         <label>Tags <span style="text-transform:none; letter-spacing:0;">(optional)</span></label>
         <div class="tag-input-row" id="tag-row">
           ${SUGGESTED_TAGS.map(t => `<button class="tag-pill-input" data-tag="${t}">${t}</button>`).join('')}
@@ -1615,7 +1623,7 @@ async function saveCaptureCard() {
     source: captureDraft.preview?.source || null,
     image_url: captureDraft.preview?.image || null,
     tags: [...captureDraft.tags],
-    opportunity: document.getElementById('opportunity-input').value || null,
+    opportunity: document.getElementById('opportunity-input')?.value || null,
     added_by: state.whoami,
   };
 
