@@ -1501,6 +1501,13 @@ function openCaptureSheet() {
         </div>
       </div>
 
+      <div class="field location-field">
+        <label>Location <span style="text-transform:none; letter-spacing:0;">(optional — puts it on the map)</span></label>
+        ${locationFieldHtml({ input: 'location-input', results: 'location-results', clear: 'location-clear' })}
+        <input type="hidden" id="location-lat" />
+        <input type="hidden" id="location-lng" />
+      </div>
+
       <div class="field">
         <label>Opportunity <span style="text-transform:none; letter-spacing:0;">(optional)</span></label>
         <select id="opportunity-input">
@@ -1563,6 +1570,14 @@ function openCaptureSheet() {
     row.insertBefore(pill, document.getElementById('custom-tag-btn'));
   });
 
+  wireLocationSearch({
+    input: 'location-input',
+    lat: 'location-lat',
+    lng: 'location-lng',
+    results: 'location-results',
+    clear: 'location-clear',
+  });
+
   document.getElementById('capture-save').addEventListener('click', saveCaptureCard);
 }
 
@@ -1613,9 +1628,16 @@ async function saveCaptureCard() {
   saveBtn.disabled = true;
   saveBtn.textContent = 'Saving…';
 
+  const locationName = document.getElementById('location-input')?.value.trim() || '';
+  const latVal = document.getElementById('location-lat')?.value;
+  const lngVal = document.getElementById('location-lng')?.value;
+
   const payload = {
     destination_id: state.destination.id,
     type: captureDraft.type,
+    location_name: locationName || null,
+    lat: latVal ? Number(latVal) : null,
+    lng: lngVal ? Number(lngVal) : null,
     title,
     note: note || null,
     description: captureDraft.preview?.description || null,
