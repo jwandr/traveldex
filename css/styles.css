@@ -2953,3 +2953,42 @@ main {
   gap: 6px;
   margin: -6px 0 18px;
 }
+/* ---------- Catalogue sorting ---------- */
+.sort-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 18px;
+}
+
+.sort-label {
+  margin-right: 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Spans the full grid row so tiles restart beneath it */
+.year-divider {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 10px 0 -4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.year-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.year-divider:first-child { margin-top: 0; }

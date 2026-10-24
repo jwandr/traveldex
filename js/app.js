@@ -16,6 +16,7 @@ const state = {
   cards: [],            // all cards for the open destination
   view: 'catalogue',    // 'catalogue' | 'destination'
   catView: 'tiles',     // 'tiles' | 'map'   (catalogue)
+  catSort: localStorage.getItem('rolodex_cat_sort') || 'date', // 'date' | 'saved' | 'manual'
   catMapLayer: 'all',  // 'dest' | 'all' | an opportunity key
   destView: 'map',      // 'browse' | 'grid' | 'map'
   browseIndex: 0,
@@ -177,6 +178,74 @@ function destinationLatLng(d) {
   return [lat, lng];
 }
 
+// ---------- Catalogue sorting ----------
+const CAT_SORTS = [
+  { id: 'date',   label: 'Date' },
+  { id: 'saved',  label: 'Most saved' },
+  { id: 'manual', label: 'Manual' },
+];
+
+function destCardCount(d) { return d.rolodex_cards?.[0]?.count || 0; }
+
+function sortDestinations(list, mode) {
+  const arr = [...list];
+  const byOrder = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0);
+
+  if (mode === 'saved') return arr.sort((a, b) => destCardCount(b) - destCardCount(a) || byOrder(a, b));
+  if (mode === 'manual') return arr.sort(byOrder);
+
+  // Date: earliest planned_start first, undated last.
+  // planned_start is 'YYYY-MM-DD', so plain string comparison sorts correctly.
+  return arr.sort((a, b) => {
+    if (!a.planned_start && !b.planned_start) return byOrder(a, b);
+    if (!a.planned_start) return 1;
+    if (!b.planned_start) return -1;
+    return a.planned_start.localeCompare(b.planned_start) || byOrder(a, b);
+  });
+}
+
+function destTileHtml(d) {
+  return `
+      <div class="dest-tile" data-id="${d.id}">
+        <div class="tile-tab">${destCardCount(d)} saved</div>
+
+        <div
+          class="tile-image"
+          ${d.cover_image
+            ? `style="background-image: url('${escapeHtml(d.cover_image)}')"`
+            : ''}
+        >
+          ${!d.cover_image ? `<span>${d.flag || '✦'}</span>` : ''}
+        </div>
+
+        <div class="tile-body">
+          <h3>${escapeHtml(d.name)}</h3>
+          <p class="tile-meta">
+            ${formatDateRange(d.planned_start, d.planned_end)}
+            ${d.planned_days ? ' · ' + d.planned_days + ' days' : ''}
+          </p>
+          <p class="tile-desc">${escapeHtml(d.short_description || '')}</p>
+        </div>
+      </div>`;
+}
+
+function destTilesHtml(sorted, mode) {
+  // Year dividers only make sense when sorting by date.
+  if (mode !== 'date') return sorted.map(destTileHtml).join('');
+
+  let html = '';
+  let lastGroup = null;
+  sorted.forEach(d => {
+    const group = d.planned_start ? d.planned_start.slice(0, 4) : 'Unscheduled';
+    if (group !== lastGroup) {
+      html += `<h2 class="year-divider">${group}</h2>`;
+      lastGroup = group;
+    }
+    html += destTileHtml(d);
+  });
+  return html;
+}
+
 function renderCatalogue() {
   destroyCatMap();
 
@@ -221,32 +290,15 @@ function renderCatalogue() {
     });
     renderCatalogueMap();
   } else {
-    const tiles = state.destinations.map(d => `
-      <div class="dest-tile" data-id="${d.id}">
-        <div class="tile-tab">${d.rolodex_cards?.[0]?.count || 0} saved</div>
-
-        <div
-          class="tile-image"
-          ${d.cover_image
-            ? `style="background-image: url('${escapeHtml(d.cover_image)}')"`
-            : ''}
-        >
-          ${!d.cover_image ? `<span>${d.flag || '✦'}</span>` : ''}
-        </div>
-
-        <div class="tile-body">
-          <h3>${escapeHtml(d.name)}</h3>
-          <p class="tile-meta">
-            ${formatDateRange(d.planned_start, d.planned_end)}
-            ${d.planned_days ? ' · ' + d.planned_days + ' days' : ''}
-          </p>
-          <p class="tile-desc">${escapeHtml(d.short_description || '')}</p>
-        </div>
-      </div>
-    `).join('');
+    const sorted = sortDestinations(state.destinations, state.catSort);
+    const tiles = destTilesHtml(sorted, state.catSort);
 
     main.innerHTML = `
       ${header}
+      <div class="sort-row">
+        <span class="sort-label">Sort</span>
+        ${CAT_SORTS.map(o => `<button class="chip ${state.catSort === o.id ? 'active' : ''}" data-sort="${o.id}">${o.label}</button>`).join('')}
+      </div>
       <div class="dest-grid">
         ${tiles}
         <button class="add-dest-tile" id="add-dest">
@@ -260,6 +312,13 @@ function renderCatalogue() {
       tile.addEventListener('click', () => openDestination(tile.dataset.id));
     });
     document.getElementById('add-dest').addEventListener('click', openAddDestinationSheet);
+    main.querySelectorAll('[data-sort]').forEach(el => {
+      el.addEventListener('click', () => {
+        state.catSort = el.dataset.sort;
+        localStorage.setItem('rolodex_cat_sort', state.catSort);
+        renderCatalogue();
+      });
+    });
   }
 
   main.querySelectorAll('[data-catview]').forEach(el => {
