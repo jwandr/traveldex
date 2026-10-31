@@ -31,6 +31,7 @@ const state = {
   catMap: null,         // catalogue map
   selectedMapCard: null,
   selectedGridCard: null,
+  tripSelected: null,   // card id picked up in the Trip view (tap-to-place)
 };
 
 const app = document.getElementById('app');
@@ -456,6 +457,7 @@ async function openDestination(id, focusCardId = null) {
   state.query = '';
   state.selectedMapCard = null;
   state.selectedGridCard = null;
+  state.tripSelected = null;
   destroyCatMap();
   if (location.hash !== `#${id}`) history.pushState({ view: 'destination', id }, '', `#${id}`);
 
@@ -536,6 +538,7 @@ function renderDestination() {
     { id: 'map',    icon: '📍', label: 'Map' },
     { id: 'grid',   icon: '▦',  label: 'Grid' },
     { id: 'browse', icon: '🗂️', label: 'Browse' },
+    { id: 'trip',   icon: '🗓️', label: 'Trip' },
   ];
 
   const main = document.getElementById('main');
@@ -685,6 +688,8 @@ function renderDestContent() {
     renderGridView(container, filtered);
   } else if (state.destView === 'map') {
     renderMapView(container, filtered);
+  } else if (state.destView === 'trip') {
+    renderTripView(container, filtered);
   } else {
     renderBrowseView(container, filtered);
   }
@@ -781,6 +786,248 @@ function cardTileHtml(c) {
 }
 
 function truncate(s, n) { return s && s.length > n ? s.slice(0, n).trim() + '…' : s; }
+
+// ---------- Trip (day-by-day planner) ----------
+// Cards carry plan_day (1-based day of the trip) and plan_slot. One card per slot.
+// Storing the day number — not a calendar date — means moving the trip's start
+// date shifts the whole plan with it.
+const TRIP_SLOTS = [
+  { id: 'morning',   label: 'Morning',   icon: '🌅' },
+  { id: 'noon',      label: 'Noon',      icon: '☀️' },
+  { id: 'afternoon', label: 'Afternoon', icon: '🌤️' },
+  { id: 'evening',   label: 'Evening',   icon: '🌙' },
+];
+// Places to stay, not things to slot into a day
+const NOT_PLANNABLE = new Set(['neighbourhood', 'accommodation']);
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; // Monday-first
+
+// 'YYYY-MM-DD' -> local Date (new Date(str) would parse as UTC and can slip a day)
+function parseLocalDate(str) {
+  if (!str) return null;
+  const [y, m, d] = String(str).slice(0, 10).split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function tripDayCount(d) {
+  if (d.planned_days > 0) return d.planned_days;
+  const s = parseLocalDate(d.planned_start), e = parseLocalDate(d.planned_end);
+  if (s && e && e >= s) return Math.round((e - s) / 86400000) + 1;
+  return 0;
+}
+
+// The slot a card occupies in this trip, or null (unscheduled / beyond the trip's length)
+function cardPlan(c, days) {
+  if (!Number.isInteger(c.plan_day) || !TRIP_SLOTS.some(s => s.id === c.plan_slot)) return null;
+  return c.plan_day >= 1 && c.plan_day <= days ? { day: c.plan_day, slot: c.plan_slot } : null;
+}
+
+function tripChipHtml(c, { scheduled = false, outside = false } = {}) {
+  const t = CARD_TYPES[c.type] || CARD_TYPES.other;
+  return `
+    <div class="trip-chip ${state.tripSelected === c.id ? 'selected' : ''}" draggable="true" data-card="${c.id}" title="${escapeHtml(c.title)}">
+      <span class="tc-ic">${t.icon}</span>
+      <span class="tc-title">${escapeHtml(c.title)}</span>
+      ${outside ? `<span class="tc-flag">was day ${c.plan_day}</span>` : ''}
+      ${scheduled ? `
+        <button class="tc-btn" data-trip-open="${c.id}" title="Open card" aria-label="Open card">↗</button>
+        <button class="tc-btn" data-trip-clear="${c.id}" title="Take off this day" aria-label="Take off this day">✕</button>` : ''}
+    </div>`;
+}
+
+function renderTripView(container, list) {
+  const d = state.destination;
+  const days = tripDayCount(d);
+
+  if (!days) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="glyph">🗓️</div>
+        <h3>No trip length yet</h3>
+        <p>Set the number of days (or a start and end date) and the days will appear here.</p>
+        <button class="tbtn accent" id="trip-set-dates">✎ Set dates</button>
+      </div>`;
+    document.getElementById('trip-set-dates').addEventListener('click', openEditDestinationSheet);
+    return;
+  }
+
+  if (state.tripSelected && !state.cards.some(c => c.id === state.tripSelected)) state.tripSelected = null;
+
+  const start = parseLocalDate(d.planned_start);
+  const offset = start ? (start.getDay() + 6) % 7 : 0; // blank cells so weekdays line up in columns
+  const placed = new Map();                             // "day:slot" -> card
+  state.cards.forEach(c => { const p = cardPlan(c, days); if (p) placed.set(`${p.day}:${p.slot}`, c); });
+
+  const tray = list.filter(c => !NOT_PLANNABLE.has(c.type) && !cardPlan(c, days));
+
+  const cells = [];
+  if (start) for (let i = 0; i < offset; i++) cells.push('<div class="trip-day blank"></div>');
+  for (let n = 1; n <= days; n++) {
+    let head = `<span class="td-n">Day ${n}</span>`;
+    let weekend = false;
+    if (start) {
+      const dt = new Date(start);
+      dt.setDate(start.getDate() + n - 1);
+      const dow = (dt.getDay() + 6) % 7;
+      weekend = dow >= 5;
+      head = `<span class="td-dow">${WEEKDAYS[dow]}</span>
+              <span class="td-date">${dt.getDate()} ${dt.toLocaleDateString('en-AU', { month: 'short' })}</span>
+              <span class="td-n">Day ${n}</span>`;
+    }
+    cells.push(`
+      <div class="trip-day ${weekend ? 'weekend' : ''}">
+        <div class="td-head">${head}</div>
+        ${TRIP_SLOTS.map(s => {
+          const c = placed.get(`${n}:${s.id}`);
+          return `
+            <div class="trip-slot ${c ? 'filled' : ''}" data-day="${n}" data-slot="${s.id}" title="${s.label}">
+              <span class="ts-ic" aria-hidden="true">${s.icon}</span>
+              ${c ? tripChipHtml(c, { scheduled: true }) : `<span class="ts-empty">${s.label}</span>`}
+            </div>`;
+        }).join('')}
+      </div>`);
+  }
+
+  let range = '';
+  if (start) {
+    const end = new Date(start);
+    end.setDate(start.getDate() + days - 1);
+    const f = x => x.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+    range = ` · ${f(start)} – ${f(end)}`;
+  }
+
+  container.innerHTML = `
+    <div class="trip-layout ${state.tripSelected ? 'has-selection' : ''}">
+      <aside class="trip-tray" id="trip-tray">
+        <h3>Ideas <span class="count">${tray.length}</span></h3>
+        <p class="trip-hint">Drag an idea onto a slot — or tap an idea, then tap a slot.</p>
+        <div class="trip-tray-list">
+          ${tray.length
+            ? tray.map(c => tripChipHtml(c, { outside: Number.isInteger(c.plan_day) })).join('')
+            : `<p class="trip-empty">${state.cards.some(c => !NOT_PLANNABLE.has(c.type) && !cardPlan(c, days))
+                ? 'No unplanned ideas match the current filters.'
+                : 'Every idea is on the calendar.'}</p>`}
+        </div>
+      </aside>
+
+      <div class="trip-main">
+        <p class="trip-summary">${days} day${days === 1 ? '' : 's'}${range} · ${placed.size} of ${days * TRIP_SLOTS.length} slots planned</p>
+        ${start ? `<div class="trip-dow-row">${WEEKDAYS.map((w, i) => `<span class="${i >= 5 ? 'weekend' : ''}">${w}</span>`).join('')}</div>` : ''}
+        <div class="trip-days ${start ? 'weeks' : ''}">${cells.join('')}</div>
+      </div>
+    </div>`;
+
+  wireTripView(container.querySelector('.trip-layout'));
+}
+
+function wireTripView(root) {
+  const dropTarget = el => el.closest('.trip-slot, .trip-tray');
+  const clearOver = except => root.querySelectorAll('.over').forEach(el => { if (el !== except) el.classList.remove('over'); });
+
+  root.addEventListener('dragstart', e => {
+    const chip = e.target.closest?.('.trip-chip');
+    if (!chip) return;
+    e.dataTransfer.setData('text/plain', chip.dataset.card);
+    e.dataTransfer.effectAllowed = 'move';
+    chip.classList.add('dragging');
+    root.classList.add('is-dragging');
+  });
+  root.addEventListener('dragend', () => {
+    root.classList.remove('is-dragging');
+    root.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+    clearOver(null);
+  });
+  root.addEventListener('dragover', e => {
+    const t = dropTarget(e.target);
+    if (!t) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    clearOver(t);
+    t.classList.add('over');
+  });
+  root.addEventListener('dragleave', e => {
+    const t = dropTarget(e.target);
+    if (t && !t.contains(e.relatedTarget)) t.classList.remove('over');
+  });
+  root.addEventListener('drop', e => {
+    const t = dropTarget(e.target);
+    if (!t) return;
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain');
+    state.tripSelected = null;
+    if (t.classList.contains('trip-slot')) planCard(id, Number(t.dataset.day), t.dataset.slot);
+    else planCard(id, null, null);
+  });
+
+  // Tap-to-place (touch-friendly alternative to dragging)
+  root.addEventListener('click', e => {
+    const open = e.target.closest('[data-trip-open]');
+    if (open) {
+      const card = state.cards.find(c => c.id === open.dataset.tripOpen);
+      if (card) { state.selectedGridCard = card; state.destView = 'grid'; renderDestination(); }
+      return;
+    }
+    const clear = e.target.closest('[data-trip-clear]');
+    if (clear) { state.tripSelected = null; planCard(clear.dataset.tripClear, null, null); return; }
+
+    const chip = e.target.closest('.trip-chip');
+    const slot = e.target.closest('.trip-slot');
+    const sel = state.tripSelected;
+
+    if (sel && slot && !(chip && chip.dataset.card === sel)) {
+      state.tripSelected = null;
+      planCard(sel, Number(slot.dataset.day), slot.dataset.slot);
+    } else if (sel && !chip && e.target.closest('.trip-tray')) {
+      state.tripSelected = null;
+      planCard(sel, null, null);
+    } else if (chip) {
+      state.tripSelected = sel === chip.dataset.card ? null : chip.dataset.card;
+      renderDestContent();
+    }
+  });
+}
+
+// Put a card in a slot (day/slot null = back to the ideas tray).
+// Updates the screen straight away, then saves in order so the one-per-slot
+// rule in the database never trips. On any failure we reload the truth.
+let planQueue = Promise.resolve();
+function planCard(cardId, day, slot) {
+  const card = state.cards.find(c => c.id === cardId);
+  if (!card) return;
+  const changes = [];
+
+  if (day == null) {
+    if (card.plan_day == null) return;
+    changes.push({ card, day: null, slot: null });
+  } else {
+    if (card.plan_day === day && card.plan_slot === slot) return;
+    const occupant = state.cards.find(c => c.id !== card.id && c.plan_day === day && c.plan_slot === slot);
+    const from = card.plan_day != null ? { day: card.plan_day, slot: card.plan_slot } : null;
+    if (occupant && from) {
+      // slot-to-slot onto an occupied slot: swap them
+      changes.push({ card, day: null, slot: null }, { card: occupant, ...from }, { card, day, slot });
+    } else {
+      // dropped from the tray onto an occupied slot: the old occupant goes back to the tray
+      if (occupant) changes.push({ card: occupant, day: null, slot: null });
+      changes.push({ card, day, slot });
+    }
+  }
+
+  changes.forEach(ch => { ch.card.plan_day = ch.day; ch.card.plan_slot = ch.slot; });
+  renderDestContent();
+
+  const destId = state.destination.id;
+  planQueue = planQueue.then(async () => {
+    try {
+      for (const ch of changes) await api.updateCard(ch.card.id, { plan_day: ch.day, plan_slot: ch.slot });
+    } catch (err) {
+      console.error(err);
+      showToast("Couldn't save the plan — have the Trip columns been added in Supabase?");
+      if (state.destination?.id === destId) {
+        try { state.cards = await api.fetchCards(destId); renderDestContent(); } catch (_) { /* ignore */ }
+      }
+    }
+  });
+}
 
 // ---------- Browse (flip through) ----------
 function renderBrowseView(container, list) {
