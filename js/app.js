@@ -821,16 +821,22 @@ function cardPlan(c, days) {
   return c.plan_day >= 1 && c.plan_day <= days ? { day: c.plan_day, slot: c.plan_slot } : null;
 }
 
-function tripChipHtml(c, { scheduled = false, outside = false } = {}) {
+function tripChipHtml(c, { scheduled = false, outside = false, tray = false } = {}) {
   const t = CARD_TYPES[c.type] || CARD_TYPES.other;
+  const opp = CARD_OPPORTUNITIES[c.opportunity];
+  const sub = [t.label, opp ? `${opp.icon} ${opp.label}` : ''].filter(Boolean).join(' · ');
   return `
-    <div class="trip-chip ${state.tripSelected === c.id ? 'selected' : ''}" draggable="true" data-card="${c.id}" title="${escapeHtml(c.title)}">
+    <div class="trip-chip ${tray ? 'in-tray' : ''} ${state.tripSelected === c.id ? 'selected' : ''}" draggable="true" data-card="${c.id}" title="${escapeHtml(c.title)}">
       <span class="tc-ic">${t.icon}</span>
-      <span class="tc-title">${escapeHtml(c.title)}</span>
-      ${outside ? `<span class="tc-flag">was day ${c.plan_day}</span>` : ''}
+      <span class="tc-text">
+        <span class="tc-title">${escapeHtml(c.title)}</span>
+        ${tray ? `<span class="tc-sub">${escapeHtml(sub)}${outside ? ` · was day ${c.plan_day}` : ''}</span>` : ''}
+      </span>
       ${scheduled ? `
-        <button class="tc-btn" data-trip-open="${c.id}" title="Open card" aria-label="Open card">↗</button>
-        <button class="tc-btn" data-trip-clear="${c.id}" title="Take off this day" aria-label="Take off this day">✕</button>` : ''}
+        <span class="tc-actions">
+          <button class="tc-btn" data-trip-open="${c.id}" title="Open card" aria-label="Open card">↗</button>
+          <button class="tc-btn" data-trip-clear="${c.id}" title="Take off this day" aria-label="Take off this day">✕</button>
+        </span>` : ''}
     </div>`;
 }
 
@@ -862,20 +868,20 @@ function renderTripView(container, list) {
   const cells = [];
   if (start) for (let i = 0; i < offset; i++) cells.push('<div class="trip-day blank"></div>');
   for (let n = 1; n <= days; n++) {
-    let head = `<span class="td-n">Day ${n}</span>`;
+    let when = `<span class="td-num">${n}</span>`;
     let weekend = false;
     if (start) {
       const dt = new Date(start);
       dt.setDate(start.getDate() + n - 1);
       const dow = (dt.getDay() + 6) % 7;
       weekend = dow >= 5;
-      head = `<span class="td-dow">${WEEKDAYS[dow]}</span>
-              <span class="td-date">${dt.getDate()} ${dt.toLocaleDateString('en-AU', { month: 'short' })}</span>
-              <span class="td-n">Day ${n}</span>`;
+      when = `<span class="td-dow">${WEEKDAYS[dow]}</span>
+              <span class="td-num">${dt.getDate()}</span>
+              ${n === 1 || dt.getDate() === 1 ? `<span class="td-mon">${dt.toLocaleDateString('en-AU', { month: 'short' })}</span>` : ''}`;
     }
     cells.push(`
       <div class="trip-day ${weekend ? 'weekend' : ''}">
-        <div class="td-head">${head}</div>
+        <div class="td-head"><span class="td-when">${when}</span><span class="td-n">Day ${n}</span></div>
         ${TRIP_SLOTS.map(s => {
           const c = placed.get(`${n}:${s.id}`);
           return `
@@ -902,7 +908,7 @@ function renderTripView(container, list) {
         <p class="trip-hint">Drag an idea onto a slot — or tap an idea, then tap a slot.</p>
         <div class="trip-tray-list">
           ${tray.length
-            ? tray.map(c => tripChipHtml(c, { outside: Number.isInteger(c.plan_day) })).join('')
+            ? tray.map(c => tripChipHtml(c, { tray: true, outside: Number.isInteger(c.plan_day) })).join('')
             : `<p class="trip-empty">${state.cards.some(c => !NOT_PLANNABLE.has(c.type) && !cardPlan(c, days))
                 ? 'No unplanned ideas match the current filters.'
                 : 'Every idea is on the calendar.'}</p>`}
@@ -910,7 +916,11 @@ function renderTripView(container, list) {
       </aside>
 
       <div class="trip-main">
-        <p class="trip-summary">${days} day${days === 1 ? '' : 's'}${range} · ${placed.size} of ${days * TRIP_SLOTS.length} slots planned</p>
+        <div class="trip-summary">
+          <p>${days} day${days === 1 ? '' : 's'}${range}</p>
+          <p class="trip-progress-label"><strong>${placed.size}</strong> of ${days * TRIP_SLOTS.length} slots planned</p>
+          <div class="trip-progress" aria-hidden="true"><span style="width:${Math.round(placed.size / (days * TRIP_SLOTS.length) * 100)}%"></span></div>
+        </div>
         ${start ? `<div class="trip-dow-row">${WEEKDAYS.map((w, i) => `<span class="${i >= 5 ? 'weekend' : ''}">${w}</span>`).join('')}</div>` : ''}
         <div class="trip-days ${start ? 'weeks' : ''}">${cells.join('')}</div>
       </div>
