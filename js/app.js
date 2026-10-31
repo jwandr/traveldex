@@ -528,6 +528,7 @@ function computeInsights() {
 }
 
 function renderDestination() {
+  closeCardModal({ refresh: false });
   const d = state.destination;
   const allTags = [...new Set(state.cards.flatMap(c => c.tags || []))].sort();
   const insights = computeInsights();
@@ -787,6 +788,48 @@ function cardTileHtml(c) {
 
 function truncate(s, n) { return s && s.length > n ? s.slice(0, n).trim() + '…' : s; }
 
+// ---------- Card modal ----------
+// Reuses the same detail card (and buttons) as the Grid side panel, shown over
+// the current view so the layout behind it never moves.
+function openCardModal(card) {
+  closeCardModal({ refresh: false });
+  const overlay = document.createElement('div');
+  overlay.className = 'card-modal-overlay';
+  overlay.id = 'card-modal';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', card.title || 'Card');
+  overlay.innerHTML = `
+    <div class="card-modal">
+      <button class="sheet-close card-modal-close" aria-label="Close">✕</button>
+      ${browseCardHtml(card)}
+    </div>`;
+  document.body.appendChild(overlay);
+
+  wireBrowseCardActions(card);
+  touchViewed(card.id);
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeCardModal(); });
+  overlay.querySelector('.card-modal-close').addEventListener('click', () => closeCardModal());
+  // Edit hands over to the edit sheet (which re-renders on save)
+  overlay.querySelector('#bc-edit')?.addEventListener('click', () => closeCardModal({ refresh: false }));
+  overlay.querySelector('.card-modal-close').focus();
+}
+
+// refresh: re-draw the view behind, in case something (e.g. the opportunity) changed inside
+function closeCardModal({ refresh = true } = {}) {
+  const el = document.getElementById('card-modal');
+  if (!el) return;
+  el.remove();
+  if (refresh && state.view === 'destination') renderDestContent();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('card-modal') && !document.getElementById('edit-card-overlay')) {
+    closeCardModal();
+  }
+});
+
 // ---------- Trip (day-by-day planner) ----------
 // Cards carry plan_day (1-based day of the trip) and plan_slot. One card per slot.
 // Storing the day number — not a calendar date — means moving the trip's start
@@ -832,11 +875,10 @@ function tripChipHtml(c, { scheduled = false, outside = false, tray = false } = 
         <span class="tc-title">${escapeHtml(c.title)}</span>
         ${tray ? `<span class="tc-sub">${escapeHtml(sub)}${outside ? ` · was day ${c.plan_day}` : ''}</span>` : ''}
       </span>
-      ${scheduled ? `
-        <span class="tc-actions">
-          <button class="tc-btn" data-trip-open="${c.id}" title="Open card" aria-label="Open card">↗</button>
-          <button class="tc-btn" data-trip-clear="${c.id}" title="Take off this day" aria-label="Take off this day">✕</button>
-        </span>` : ''}
+      <span class="tc-actions">
+        <button class="tc-btn" data-trip-open="${c.id}" title="Open card" aria-label="Open card">↗</button>
+        ${scheduled ? `<button class="tc-btn" data-trip-clear="${c.id}" title="Take off this day" aria-label="Take off this day">✕</button>` : ''}
+      </span>
     </div>`;
 }
 
@@ -968,12 +1010,18 @@ function wireTripView(root) {
     else planCard(id, null, null);
   });
 
+  root.addEventListener('dblclick', e => {
+    const chip = e.target.closest('.trip-chip');
+    const card = chip && state.cards.find(c => c.id === chip.dataset.card);
+    if (card) openCardModal(card);
+  });
+
   // Tap-to-place (touch-friendly alternative to dragging)
   root.addEventListener('click', e => {
     const open = e.target.closest('[data-trip-open]');
     if (open) {
       const card = state.cards.find(c => c.id === open.dataset.tripOpen);
-      if (card) { state.selectedGridCard = card; state.destView = 'grid'; renderDestination(); }
+      if (card) openCardModal(card);
       return;
     }
     const clear = e.target.closest('[data-trip-clear]');
