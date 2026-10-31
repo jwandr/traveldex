@@ -271,6 +271,7 @@ function renderCatalogue() {
     const layers = [
       { id: 'dest', label: 'Destinations' },
       { id: 'all',  label: 'All ideas' },
+      { id: 'neighbourhood', label: `${CARD_TYPES.neighbourhood.icon} Neighbourhoods` },
       ...Object.entries(CARD_OPPORTUNITIES).map(([k, v]) => ({ id: k, label: `${v.icon} ${v.label}` })),
     ];
     main.innerHTML = `
@@ -336,6 +337,20 @@ const PIN_COLOURS = {
   other: '#7D8A96',
 };
 
+// Neighbourhoods are areas, not points — and their edges are fuzzy — so they
+// draw as a big, soft circle sitting underneath the sight dots.
+const NEIGHBOURHOOD_COLOUR = '#2F7F86';
+const isNeighbourhood = c => c.type === 'neighbourhood';
+const neighbourhoodsFirst = (a, b) => Number(isNeighbourhood(b)) - Number(isNeighbourhood(a));
+
+function neighbourhoodStyle(selected = false) {
+  return {
+    radius: selected ? 18 : 16, weight: selected ? 3 : 2,
+    color: selected ? '#FFDE21' : NEIGHBOURHOOD_COLOUR,
+    fillColor: NEIGHBOURHOOD_COLOUR, fillOpacity: selected ? 0.35 : 0.22,
+  };
+}
+
 function renderCatalogueMap() {
   const el = document.getElementById('cat-map');
   if (!el || !window.L) return;
@@ -354,21 +369,27 @@ function renderCatalogueMap() {
   // Card dots first, so destination labels sit on top
   if (state.catMapLayer !== 'dest') {
     const pins = state.cardPins.filter(p => {
+      if (state.catMapLayer === 'neighbourhood') return isNeighbourhood(p);
       if (CARD_OPPORTUNITIES[state.catMapLayer]) return p.opportunity === state.catMapLayer;
       return true;
-    });
+    }).sort(neighbourhoodsFirst);
 
     pins.forEach(p => {
       const colour = PIN_COLOURS[p.opportunity] || PIN_COLOURS.other;
       const dest = destById[p.destination_id];
-      const marker = L.circleMarker([p.lat, p.lng], {
-        radius: 6, weight: 2, color: '#fff', fillColor: colour, fillOpacity: 0.95,
-      }).addTo(map);
+      const marker = L.circleMarker([p.lat, p.lng], isNeighbourhood(p)
+        ? neighbourhoodStyle()
+        : { radius: 6, weight: 2, color: '#fff', fillColor: colour, fillOpacity: 0.95 }
+      ).addTo(map);
 
       const oppInfo = CARD_OPPORTUNITIES[p.opportunity];
+      const tags = [
+        isNeighbourhood(p) ? `${CARD_TYPES.neighbourhood.icon} Neighbourhood` : '',
+        oppInfo ? `${oppInfo.icon} ${escapeHtml(oppInfo.label)}` : '',
+      ].filter(Boolean).join(' · ');
       marker.bindPopup(`
         <strong>${escapeHtml(p.title)}</strong><br>
-        <small>${dest ? escapeHtml((dest.flag || '') + ' ' + dest.name) : ''}${oppInfo ? ' · ' + oppInfo.icon + ' ' + escapeHtml(oppInfo.label) : ''}</small><br>
+        <small>${dest ? escapeHtml((dest.flag || '') + ' ' + dest.name) : ''}${tags ? ' · ' + tags : ''}</small><br>
         <button class="tbtn map-pop-btn" data-open-dest="${p.destination_id}" data-open-card="${p.id}">Open ↗</button>
       `);
       marker.on('popupopen', e => {
@@ -1479,18 +1500,20 @@ function renderMapView(container, list) {
   if (withLoc.length) {
     const bounds = [];
 
-    withLoc.forEach(c => {
+    [...withLoc].sort(neighbourhoodsFirst).forEach(c => {
       const isSelected = state.selectedMapCard?.id === c.id;
 
       const marker = L.circleMarker(
         [c.lat, c.lng],
-        {
-          radius: isSelected ? 9 : 7,
-          weight: isSelected ? 3 : 2,
-          color: isSelected ? '#FFDE21' : '#fff',
-          fillColor: '#d85c4a',
-          fillOpacity: isSelected ? 1 : 0.9,
-        }
+        isNeighbourhood(c)
+          ? neighbourhoodStyle(isSelected)
+          : {
+              radius: isSelected ? 9 : 7,
+              weight: isSelected ? 3 : 2,
+              color: isSelected ? '#FFDE21' : '#fff',
+              fillColor: '#d85c4a',
+              fillOpacity: isSelected ? 1 : 0.9,
+            }
       ).addTo(map);
 
       marker.bindPopup(

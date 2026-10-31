@@ -54,6 +54,7 @@ export const QUICK_FILTERS = [
   { id: 'food',      label: 'Food',     type: 'food' },
   { id: 'link',      label: 'Links',    typeIn: ['article', 'video'] },
   { id: 'photo',     label: 'Photos',   type: 'photo' },
+  { id: 'neighbourhood', label: 'Neighbourhoods', type: 'neighbourhood' },
 ];
 
 export function escapeHtml(str) {
